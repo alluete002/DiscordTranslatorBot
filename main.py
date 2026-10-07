@@ -23,12 +23,16 @@ intents.message_content = True
 
 client = discord.Client(intents=intents)
 
-# Solo una traducción a la vez para no disparar límites.
 translation_lock = asyncio.Lock()
 last_request_time = 0.0
 
-# MyMemory limita el tamaño de cada consulta, así que troceamos textos largos.
 SOURCE_CHUNK = 450
+
+# MyMemory necesita códigos regionales.
+MYMEMORY_LANG = {
+    "es": "es-ES",
+    "it": "it-IT",
+}
 
 
 def split_source(text: str, max_len: int = SOURCE_CHUNK):
@@ -37,8 +41,10 @@ def split_source(text: str, max_len: int = SOURCE_CHUNK):
 
     while len(remaining) > max_len:
         cut = remaining.rfind("\n", 0, max_len)
+
         if cut < max_len // 2:
             cut = remaining.rfind(" ", 0, max_len)
+
         if cut < max_len // 2:
             cut = max_len
 
@@ -57,8 +63,10 @@ def split_discord(text: str, max_len: int = 1850):
 
     while len(remaining) > max_len:
         cut = remaining.rfind("\n", 0, max_len)
+
         if cut < max_len // 2:
             cut = remaining.rfind(" ", 0, max_len)
+
         if cut < max_len // 2:
             cut = max_len
 
@@ -74,7 +82,6 @@ def split_discord(text: str, max_len: int = 1850):
 async def wait_for_rate_limit():
     global last_request_time
 
-    # Dejamos al menos 1.25 segundos entre peticiones.
     now = time.monotonic()
     wait = 1.25 - (now - last_request_time)
 
@@ -98,16 +105,18 @@ async def google_translate(text: str, source: str, target: str):
 async def mymemory_translate(text: str, source: str, target: str):
     await wait_for_rate_limit()
 
+    mm_source = MYMEMORY_LANG[source]
+    mm_target = MYMEMORY_LANG[target]
+
     return await asyncio.to_thread(
         lambda: MyMemoryTranslator(
-            source=source,
-            target=target
+            source=mm_source,
+            target=mm_target
         ).translate(text)
     )
 
 
 async def translate_part(text: str, source: str, target: str) -> str:
-    # Primer intento: Google
     try:
         return await google_translate(text, source, target)
 
@@ -115,7 +124,6 @@ async def translate_part(text: str, source: str, target: str) -> str:
         print("Google ha limitado la IP. Esperando 3 segundos...")
         await asyncio.sleep(3)
 
-        # Segundo intento con Google
         try:
             return await google_translate(text, source, target)
 
@@ -124,9 +132,8 @@ async def translate_part(text: str, source: str, target: str) -> str:
 
     except Exception as exc:
         print(f"GoogleTranslator error: {exc}")
-        print("Probando MyMemory como respaldo.")
+        print("Usando MyMemory como respaldo.")
 
-    # Respaldo gratuito
     return await mymemory_translate(text, source, target)
 
 
